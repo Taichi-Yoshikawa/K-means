@@ -7,7 +7,6 @@ import time                         as tm
 import numpy                        as np
 import pandas                       as pd
 from matplotlib  import pyplot      as plt
-from collections import OrderedDict as od
 import configuration                as cf
 
 
@@ -24,66 +23,107 @@ class KMeans:
         self.random = np.random
         self.random.seed(seed)
         self.time = tm.strftime('%Y-%m-%d_%H-%M-%S')
-        self.cnf_name = '_'.join([])
-        # initialize parameters
-        self.params = {}
-        self.params['W1'] = self.cnf.weight_init * self.random.randn(self.cnf.input_size, self.cnf.hidden_size)
-        self.params['b1'] = np.zeros(self.cnf.hidden_size)
-        self.params['W2'] = self.cnf.weight_init * self.random.randn(self.cnf.hidden_size, self.cnf.output_size)
-        self.params['b2'] = np.zeros(self.cnf.output_size)
-        # Generate Layers
-        self.layers = od()
-        self.layers['Affine1']  = Affine(self.params['W1'], self.params['b1'])
-        self.layers['Relu1']    = Relu()
-        self.layers['Affine2']  = Affine(self.params['W2'], self.params['b2'])
-        self.lastLayer = SoftmaxWithLoss(self.cnf)
+        self.cnf_name = 'comparison_Iris' + '_'.join([self.cnf.similarity_index, 'seed='+str(seed)])
 
 
     def main(self):
         '''
             main function
         '''
-        try:
-            # loading dataset
-            (x_train, t_train), (x_test, t_test) = self.loadDataset()
-            # number of data
-            train_size = x_train.shape[0]
-            train_loss_list, train_acc_list, test_acc_list = [], [], []
-            iter_per_epoch = max(train_size // self.cnf.batch_size, 1)
-            iters = self.cnf.epoch * iter_per_epoch
+        # try:
+        # loading dataset
+        (x, t) = self.loadDataset()
+        # random initialize
+        centroids = x[self.random.choice(range(x.shape[0]), self.cnf.centers, replace=False)]
+        # initialize prediction-label by k-means
+        t_predict = np.zeros(x.shape[0])
+        # label :
+        #   0 : no-assignment
+        #   n : assign n-cluster (n = 1,2,3,...)
+        t_predict_list, centroids_list = [], []
 
-            for i in range(1,iters+1):
-                # select batch-data
-                batch_mask = self.random.choice(train_size, self.cnf.batch_size)
-                x_batch = x_train[batch_mask].copy()
-                t_batch = t_train[batch_mask].copy()
-
-                # calculate gradient
-                #grad = network.numerical_gradient(x_batch, t_batch)
-                grad = self.gradient(x_batch, t_batch)
-
-                # update parameters
-                self.updateParameters(grad)
-
-                # calculate loss function
-                loss = self.loss(x_batch, t_batch)
-
-                # record accuracy
-                if (i % iter_per_epoch) == 0:
-                    train_loss_list.append(loss)
-                    train_acc = self.accuracy(x_train, t_train)
-                    test_acc = self.accuracy(x_test, t_test)
-                    train_acc_list.append(train_acc)
-                    test_acc_list.append(test_acc)
-                    print('{} epoch : {}[%]\t {}[%]'.format(str(i//iter_per_epoch).rjust(6), round(train_acc*100,3) ,round(test_acc*100,3)))
-
+        for i in range(1, self.cnf.upper_limit_iter + 1):
+            # calculate similarity index
+            similarity = self.calculateSimilarityIndex(x, centroids)
+            # assignment clusters
+            t_predict, movement = self.assignClusters(similarity, t_predict)
+            # move centroids
+            centroids = self.moveCentroids(x, t_predict)
             # plot figure
-            self.plotFigure(test_acc_list, train_acc_list, train_loss_list)
-            # save experimental data
-            self.saveExperimentalData({'train_acc': train_acc_list , 'test_acc': test_acc_list, 'train_loss': train_loss_list})
+            self.plotFigure(x, t, t_predict, centroids, i)
+            # record
+            t_predict_list.append(t_predict)
+            centroids_list.append(centroids)
 
-        except Exception as e:
-            print('Error : {}'.format(e))
+            if movement :
+                print('{} iters : assginment-move'.format(i))
+            else :
+                print('{} iters : assginment-stop'.format(i))
+                break
+
+        # plot figure
+        #self.plotFigure(x, t, t_predict, centroids)
+        # save experimental data
+        self.saveExperimentalData({'t-predict':t_predict_list, 'centroids':centroids_list})
+
+        '''
+        # calculate accuracy
+        self.calculateAccuracy()
+        # accuracy
+        print('label accuracy : {}[%]'.format())
+        '''
+
+        # except Exception as e:
+        #     print('Error : {}'.format(e))
+
+
+    def calculateSimilarityIndex(self, x, centroids):
+        '''
+            calculate similarity index (distance)
+            arguments:
+                x: input-data positions
+                centroids: centroid positions
+            returns:
+                similarity: similarity between input-data positions and centroid positions
+                    [[similarity_centroid_1, similarity_centroid_2, ...], ...]
+        '''
+        similarity = []
+        if self.cnf.similarity_index == 'euclidean-distance':
+            for i in range(x.shape[0]):
+                similarity.append([ np.sum((centroids[j] - x[i])**2)  for j in range(centroids.shape[0]) ])
+            similarity = np.array(similarity)
+        else :
+            print('Error : similarity_index is invalid strings {}'.format(self.cnf.similarity_index))
+            return
+
+        return similarity
+
+
+    def assignClusters(self, similarity, t_predict):
+        '''
+            assign cluster by minimizing similarity
+            arguments:
+                similarity: similarity between input-data positions and centroid positions
+                t_predict: prediction label
+            returns:
+                new_t_predict: new prediction label
+                movement: whether prediction label move (True/False)
+        '''
+        new_t_predict = similarity.argmin(axis=1) + 1
+        movement = True
+        if (new_t_predict == t_predict).all() :
+            movement = False
+
+        return new_t_predict, movement
+
+
+    def moveCentroids(self, x, t_predict):
+        '''
+            move Centroids
+        '''
+        centroids = [ x[t_predict == label].mean(axis=0)  for label in range(1, self.cnf.centers+1) ]
+        centroids = np.array(centroids)
+        return centroids
 
 
     def loadDataset(self):
@@ -91,12 +131,6 @@ class KMeans:
             load dataset from URL
         '''
         df = pd.read_csv(self.cnf.dataset_url, header=None)
-        # error
-        if not df.shape[0] == (sum(self.cnf.dataset_ratio.values())):
-            print('Error : dataset_ratio does not match loading dataset')
-            return
-        rand_index = self.random.permutation(range(df.shape[0]))
-        bound = self.cnf.dataset_ratio['train']
         # select [sepal_length, sepal_width, petal_length, petal_width]
         x_all = df[self.cnf.dataset_index['dec']].values
         t_all_origin = df[self.cnf.dataset_index['obj']].values
@@ -105,50 +139,57 @@ class KMeans:
         for i in range(len(t_all_origin)):
             t_all.append(self.cnf.dataset_one_hot_vector[t_all_origin[i]])
         t_all = np.array(t_all)
-        # separate data
-        x_train = x_all[rand_index[:bound]]
-        x_test  = x_all[rand_index[bound:]]
-        t_train = t_all[rand_index[:bound]]
-        t_test  = t_all[rand_index[bound:]]
+        x = x_all[:].copy()
+        t = t_all[:].copy()
 
-        return (x_train, t_train), (x_test, t_test)
+        return (x, t)
 
 
-    def plotFigure(self, test_acc_list, train_acc_list, train_loss_list):
+    def plotFigure(self, x, t, t_predict, centroids, iter=None):
+        '''
+            plot figure
+        '''
         folder_name = 'graph'
         path_graph = self.cnf.path_out + '/' + folder_name
         # make directory
         if not os.path.isdir(path_graph):
             os.makedirs(path_graph)
-        x_axis = range(1, self.cnf.epoch + 1)
 
-        # graph-1 : accuracy
-        title1 = 'accuracy' + '_' + self.cnf_name
-        fig1 = plt.figure(figsize=(10,6))
-        ax1 = fig1.add_subplot(1,1,1)
-        ax1.plot(x_axis, train_acc_list, color='green', alpha=0.7, label='train', linewidth = 1.0)
-        ax1.plot(x_axis, test_acc_list, color='orange', alpha=0.7, label='test', linewidth = 1.0)
+        fig = plt.figure(figsize=(12,6))
+        color = ['blue', 'green','red']
+
+        # graph-1 : True class
+        title1 = 'True class'
+        ax1 = fig.add_subplot(1,2,1)
+        keys = list(self.cnf.dataset_one_hot_vector.keys())
+        values = list(self.cnf.dataset_one_hot_vector.values())
+        for i in range(self.cnf.centers):
+            x_label = x[(t == values[i]).all(axis=1)]
+            ax1.scatter(x_label[:,0], x_label[:,1], color=color[i], label=keys[i], linewidth = 1.0)
         ax1.set_title(title1)
-        ax1.set_xlim(0, self.cnf.epoch)
-        ax1.set_ylim(0.0, 1.0)
-        ax1.set_xlabel('epochs')
-        ax1.set_ylabel('accuracy')
+        ax1.set_xlabel(self.cnf.dataset_dec[0])
+        ax1.set_ylabel(self.cnf.dataset_dec[1])
         ax1.legend()
-        fig1.savefig(path_graph + '/' + title1 + ".png" , dpi=300)
 
-        # graph-2 : loss-function
-        title2 = 'loss-function' + '_' + self.cnf_name
-        fig2 = plt.figure(figsize=(10,6))
-        ax2 = fig2.add_subplot(1,1,1)
-        ax2.plot(x_axis, train_loss_list, linewidth = 1.0)
+        # graph-2 : True class
+        title2 = 'k-means class'
+        ax2 = fig.add_subplot(1,2,2)
+        for i in range(self.cnf.centers):
+            x_label = x[t_predict == (i+1)]
+            ax2.scatter(x_label[:,0], x_label[:,1], color=color[i], label='class-'+ str(i+1), linewidth = 1.0)
+            ax2.scatter(centroids[i,0], centroids[i,1], color=color[i], marker='x')
         ax2.set_title(title2)
-        ax2.set_ylim(0.0)
-        ax2.set_xlim(0, self.cnf.epoch)
-        ax2.set_xlabel('epochs')
-        ax2.set_ylabel('loss-function-value')
-        fig2.savefig(path_graph + '/' + title2 + ".png" , dpi=300)
+        ax2.set_xlabel(self.cnf.dataset_dec[0])
+        ax2.set_ylabel(self.cnf.dataset_dec[1])
+        ax2.legend()
 
-        # plt.show()
+        if iter == None:
+            fig.savefig(path_graph + '/' + self.cnf_name + '.png' , dpi=300)
+            #plt.show()
+        elif isinstance(iter, int) :
+            fig.savefig(path_graph + '/' + self.cnf_name + '_iter=' + str(iter) + '.png' , dpi=300)
+
+        plt.close()
 
 
     def saveExperimentalData(self, data_dict=None):
@@ -161,255 +202,19 @@ class KMeans:
             # make directory
             if not os.path.isdir(path_table):
                 os.makedirs(path_table)
-            df = pd.DataFrame(data_dict.values(), index=data_dict.keys(), columns=range(1,self.cnf.epoch+1)).T
+            data_length = []
+            for i in range(len(data_dict)):
+                data_length.append(len(list(data_dict.values())[i]))
+            max_iter = max(data_length)
+            df = pd.DataFrame(data_dict.values(), index=data_dict.keys(), columns=range(1,max_iter+1)).T
             df.to_csv(path_table + '/' + 'experimental-data_' + self.cnf_name + '.csv')
 
 
-    def predict(self, x):
-        '''
-            predict solution (x→y)
-        '''
-        for layer in self.layers.values():
-            x = layer.forward(x)
-        return x
-
-
-
-    def loss(self, x, t):
-        '''
-            calculate loss function
-            ( x:input-data, t:label-data)
-        '''
-        y = self.predict(x)
-        return self.lastLayer.forward(y, t)
-
-
-    def updateParameters(self, grad):
-        '''
-            update parameters
-        '''
-        for key in self.params.keys():
-            if self.cnf.learning_method == 'SGD':
-                self.params[key] -= self.cnf.learning_rate * grad[key]
-            else:
-                print('Error : learning_method is invalid value.')
-                return
-
-
-    def accuracy(self, x, t):
-        '''
-            calculate accuracy
-            ( x:input-data, t:label-data)
-        '''
-        y = self.predict(x)
-        y = np.argmax(y, axis=1)
-        if t.ndim != 1 :
-            t = np.argmax(t, axis=1)
-
-        accuracy = np.sum(y == t) / float(x.shape[0])
-        return accuracy
-
-
-    def cal_numerical_gradient(self, f, x):
-        '''
-            numerical differential
-            ( f:loss-function, x:input-data)
-        '''
-        h = 1e-4 # 0.0001
-        grad = np.zeros_like(x)
-
-        it = np.nditer(x, flags=['multi_index'], op_flags=['readwrite'])
-        while not it.finished:
-            idx = it.multi_index
-            tmp_val = x[idx]
-            x[idx] = tmp_val + h
-            fxh1 = f(x) # f(x+h)
-            x[idx] = tmp_val - h
-            fxh2 = f(x) # f(x-h)
-            grad[idx] = (fxh1 - fxh2) / (2*h)
-
-            x[idx] = tmp_val # 値を元に戻す
-            it.iternext()
-
-        return grad
-
-
-    def numerical_gradient(self, x, t):
-        '''
-            gradient by numerical differential
-            ( x:input-data, t:label-data)
-        '''
-        loss_W = lambda W: self.loss(x, t)
-
-        grads = {}
-        grads['W1'] = self.cal_numerical_gradient(loss_W, self.params['W1'])
-        grads['b1'] = self.cal_numerical_gradient(loss_W, self.params['b1'])
-        grads['W2'] = self.cal_numerical_gradient(loss_W, self.params['W2'])
-        grads['b2'] = self.cal_numerical_gradient(loss_W, self.params['b2'])
-
-        return grads
-
-
-    def gradient(self, x, t):
-        '''
-            gradient by back-propagation
-            ( x:input-data, t:label-data)
-        '''
-        # forward
-        self.loss(x, t)
-
-        # backward
-        dout = 1
-        dout = self.lastLayer.backward(dout)
-
-        layers = list(self.layers.values())
-        layers.reverse()
-        for layer in layers:
-            dout = layer.backward(dout)
-
-        # result
-        grads = {}
-        grads['W1'], grads['b1'] = self.layers['Affine1'].dW, self.layers['Affine1'].db
-        grads['W2'], grads['b2'] = self.layers['Affine2'].dW, self.layers['Affine2'].db
-
-        return grads
-
-
-# --------
-#  Layers
-# --------
-class Relu:
-    '''
-        ReLU Layer
-    '''
-    def __init__(self):
-        self.mask = None
-
-    def forward(self, x):
-        self.mask = (x <= 0)
-        out = x.copy()
-        out[self.mask] = 0
-
-        return out
-
-    def backward(self, dout):
-        dout[self.mask] = 0
-        dx = dout
-
-        return dx
-
-
-class Sigmoid:
-    '''
-        Sigmoid Layer
-    '''
-    def __init__(self):
-        self.out = None
-
-    def sigmoid(self, x):
-        return 1 / (1 + np.exp(-x))
-
-    def forward(self, x):
-        out = self.sigmoid(x)
-        self.out = out
-        return out
-
-    def backward(self, dout):
-        dx = dout * (1.0 - self.out) * self.out
-
-        return dx
-
-
-class Affine:
-    '''
-        Affine Layer
-    '''
-    def __init__(self, W, b):
-        self.W =W
-        self.b = b
-
-        self.x = None
-        self.original_x_shape = None
-        # differential of wight(W), bias(b)
-        self.dW = None
-        self.db = None
-
-    def forward(self, x):
-        self.original_x_shape = x.shape
-        x = x.reshape(x.shape[0], -1)
-        self.x = x
-
-        out = np.dot(self.x, self.W) + self.b
-
-        return out
-
-    def backward(self, dout):
-        dx = np.dot(dout, self.W.T)
-        self.dW = np.dot(self.x.T, dout)
-        self.db = np.sum(dout, axis=0)
-        # restore shape of input-data
-        dx = dx.reshape(*self.original_x_shape)
-        return dx
-
-
-class SoftmaxWithLoss:
-    '''
-        Softmax with Loss Layer
-    '''
-    def __init__(self, cnf):
-        self.cnf    = cnf
-        self.loss   = None
-        # output of softmax
-        self.y      = None
-        # label-data
-        self.t      = None
-
-    def softmax(self, x):
-        if x.ndim == 2:
-            x = x.T
-            x = x - np.max(x, axis=0)
-            y = np.exp(x) / np.sum(np.exp(x), axis=0)
-            return y.T
-        # prevent from overflow
-        x = x - np.max(x)
-        return np.exp(x) / np.sum(np.exp(x))
-
-    def sum_squared_error(self, y, t):
-        return 0.5 * np.sum((y-t)**2)
-
-    def cross_entropy_error(self, y, t):
-        if y.ndim == 1:
-            t = t.reshape(1, t.size)
-            y = y.reshape(1, y.size)
-        # correct index
-        if t.size == y.size:
-            t = t.argmax(axis=1)
-        batch_size = y.shape[0]
-        return -np.sum(np.log(y[np.arange(batch_size), t] + 1e-7)) / batch_size
-
-    def forward(self, x, t):
-        self.t = t
-        self.y = self.softmax(x)
-        if self.cnf.loss_function == 'sum-squared-error' :
-            self.loss = self.sum_squared_error(self.y, self.t)
-        if self.cnf.loss_function == 'cross-entropy-error' :
-            self.loss = self.cross_entropy_error(self.y, self.t)
-
-        return self.loss
-
-    def backward(self, dout=1):
-        batch_size = self.t.shape[0]
-        # the case of label-data is one-hot-vector
-        if self.t.size == self.y.size:
-            dx = (self.y - self.t) / batch_size
-        else:
-            dx = self.y.copy()
-            dx[np.arange(batch_size), self.t] -= 1
-            dx = dx / batch_size
-
-        return dx
+    def calculateAccuracy(self):
+        pass
 
 
 if __name__ == "__main__":
-    nn = NeuralNetwork()
-    nn.main()
+    #for i in range(10):
+    km = KMeans()
+    km.main()
