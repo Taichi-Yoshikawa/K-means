@@ -25,9 +25,9 @@ class Configuration():
         }
         self.dataset_dec = ['Sepal Length', 'Sepal Width']
         self.dataset_one_hot_vector = {
-            'Iris-setosa'       : [1,0,0],
-            'Iris-versicolor'   : [0,1,0],
-            'Iris-virginica'    : [0,0,1]
+            'Iris-setosa'       : 1,
+            'Iris-versicolor'   : 2,
+            'Iris-virginica'    : 3
         }
 
         # ----- I/O Configuration -----

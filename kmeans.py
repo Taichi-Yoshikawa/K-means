@@ -7,6 +7,8 @@ import time                         as tm
 import numpy                        as np
 import pandas                       as pd
 from matplotlib  import pyplot      as plt
+import itertools                    as it
+from sklearn  import metrics        as mr
 import configuration                as cf
 
 
@@ -23,7 +25,7 @@ class KMeans:
         self.random = np.random
         self.random.seed(seed)
         self.time = tm.strftime('%Y-%m-%d_%H-%M-%S')
-        self.cnf_name = 'comparison_Iris' + '_'.join([self.cnf.similarity_index, 'seed='+str(seed)])
+        self.cnf_name = 'comparison_' + '_'.join(['Iris',self.cnf.similarity_index, 'seed='+str(seed)])
 
 
     def main(self):
@@ -40,7 +42,8 @@ class KMeans:
         # label :
         #   0 : no-assignment
         #   n : assign n-cluster (n = 1,2,3,...)
-        t_predict_list, centroids_list = [], []
+        t_truepredict_list, centroids_list = [], []
+        acc_list, confmat_list = [], []
 
         for i in range(1, self.cnf.upper_limit_iter + 1):
             # calculate similarity index
@@ -49,29 +52,26 @@ class KMeans:
             t_predict, movement = self.assignClusters(similarity, t_predict)
             # move centroids
             centroids = self.moveCentroids(x, t_predict)
+            # calculate accuracy
+            acc, confmat, t_truepredict = self.calculateAccuracy(t, t_predict)
             # plot figure
             self.plotFigure(x, t, t_predict, centroids, i)
             # record
-            t_predict_list.append(t_predict)
+            t_truepredict_list.append(t_truepredict)
             centroids_list.append(centroids)
-
+            acc_list.append(acc)
+            confmat_list.append(confmat)
+            # movement
             if movement :
-                print('{} iters : assginment-move'.format(i))
+                print('{} iters : class-move (accuracy: {}[%])'.format(str(i).rjust(3), acc*100))
             else :
-                print('{} iters : assginment-stop'.format(i))
+                print('{} iters : class-stop (accuracy: {}[%])'.format(str(i).rjust(3), acc*100))
                 break
 
         # plot figure
         #self.plotFigure(x, t, t_predict, centroids)
         # save experimental data
-        self.saveExperimentalData({'t-predict':t_predict_list, 'centroids':centroids_list})
-
-        '''
-        # calculate accuracy
-        self.calculateAccuracy()
-        # accuracy
-        print('label accuracy : {}[%]'.format())
-        '''
+        self.saveExperimentalData({'t-pred':np.array(t_truepredict_list), 'centroid':np.array(centroids_list), 'acc':np.array(acc_list), 'confmat':np.array(confmat_list)})
 
         # except Exception as e:
         #     print('Error : {}'.format(e))
@@ -156,7 +156,9 @@ class KMeans:
             os.makedirs(path_graph)
 
         fig = plt.figure(figsize=(12,6))
-        color = ['blue', 'green','red']
+        color = ['blue', 'green', 'red']
+        color_centroids = ['darkblue', 'darkgreen', 'darkred']
+        marker = ['o', '*']
 
         # graph-1 : True class
         title1 = 'True class'
@@ -164,8 +166,8 @@ class KMeans:
         keys = list(self.cnf.dataset_one_hot_vector.keys())
         values = list(self.cnf.dataset_one_hot_vector.values())
         for i in range(self.cnf.centers):
-            x_label = x[(t == values[i]).all(axis=1)]
-            ax1.scatter(x_label[:,0], x_label[:,1], color=color[i], label=keys[i], linewidth = 1.0)
+            x_label = x[t == values[i]]
+            ax1.scatter(x_label[:,0], x_label[:,1], color=color[i], label=keys[i], linewidth = 1.0, marker=marker[0])
         ax1.set_title(title1)
         ax1.set_xlabel(self.cnf.dataset_dec[0])
         ax1.set_ylabel(self.cnf.dataset_dec[1])
@@ -176,8 +178,8 @@ class KMeans:
         ax2 = fig.add_subplot(1,2,2)
         for i in range(self.cnf.centers):
             x_label = x[t_predict == (i+1)]
-            ax2.scatter(x_label[:,0], x_label[:,1], color=color[i], label='class-'+ str(i+1), linewidth = 1.0)
-            ax2.scatter(centroids[i,0], centroids[i,1], color=color[i], marker='x')
+            ax2.scatter(x_label[:,0], x_label[:,1], color=color[i], label='class-'+ str(i+1), linewidth = 1.0, marker=marker[0])
+            ax2.scatter(centroids[i,0], centroids[i,1], color=color_centroids[i], marker=marker[1])
         ax2.set_title(title2)
         ax2.set_xlabel(self.cnf.dataset_dec[0])
         ax2.set_ylabel(self.cnf.dataset_dec[1])
@@ -206,12 +208,61 @@ class KMeans:
             for i in range(len(data_dict)):
                 data_length.append(len(list(data_dict.values())[i]))
             max_iter = max(data_length)
-            df = pd.DataFrame(data_dict.values(), index=data_dict.keys(), columns=range(1,max_iter+1)).T
+            value, index = None, None
+
+            for i in range(len(data_dict)):
+                data = data_dict[list(data_dict.keys())[i]]
+                if i == 0 :
+                    # vector
+                    if data.ndim == 1:
+                        value = np.array([data]).T
+                        index = [list(data_dict.keys())[i]]
+                    # matrix
+                    elif data.ndim == 2:
+                        value = data
+                        index = [ '{}[{}]'.format(list(data_dict.keys())[i], j+1)  for j in range(data.shape[1]) ]
+                    # tensor
+                    else:
+                        value = data.reshape([max_iter,-1])
+                        shape1, shape2 = np.arange(data.shape[1]), np.arange(data.shape[2])
+                        index = [ '{}[{}][{}]'.format(list(data_dict.keys())[i], j+1, k+1) for j,k in zip(shape1.repeat(data.shape[2]),shape2.tile(data.shape[1]))]
+                else :
+                    if data.ndim == 1:
+                        value = np.block([[value, np.array([data]).T]])
+                        index.append(list(data_dict.keys())[i])
+                    # matrix
+                    elif data.ndim == 2:
+                        value = np.block([[value, data]])
+                        index.extend([ '{}[{}]'.format(list(data_dict.keys())[i], j+1)  for j in range(data.shape[1]) ])
+                    # tensor
+                    else:
+                        value = np.block([[value, data.reshape([max_iter,-1])]])
+                        shape1, shape2 = np.arange(data.shape[1]), np.arange(data.shape[2])
+                        index.extend([ '{}[{}][{}]'.format(list(data_dict.keys())[i], j+1, k+1) for j,k in zip(np.repeat(shape1,data.shape[2]),np.tile(shape2,data.shape[1]))])
+
+            df = pd.DataFrame(value, index=range(1,max_iter+1),columns=index)
             df.to_csv(path_table + '/' + 'experimental-data_' + self.cnf_name + '.csv')
 
 
-    def calculateAccuracy(self):
-        pass
+    def calculateAccuracy(self, t, t_predict):
+        '''
+            calculate accuracy
+        '''
+        pt = list(it.permutations(list(self.cnf.dataset_one_hot_vector.values()), len(self.cnf.dataset_one_hot_vector)))
+        # transform string
+        str_t_predict = t_predict.astype(str)
+        confmat, acc = [], 0
+
+        for i in range(len(pt)):
+            transform_table = { str(j+1):str(pt[i][j])  for j in range(len(pt[i])) }
+            t_predict_ = np.array([ transform_table[str_t_predict[j]]  for j in range(str_t_predict.shape[0]) ], dtype=np.int)
+            acc_ = round(mr.accuracy_score(t,t_predict_),4)
+            if acc_ > acc :
+                acc = acc_
+                confmat = mr.confusion_matrix(t,t_predict_)
+                t_truepredict = t_predict_.copy()
+
+        return acc, confmat, t_truepredict
 
 
 if __name__ == "__main__":
