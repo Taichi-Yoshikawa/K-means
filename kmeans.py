@@ -42,7 +42,7 @@ class KMeans:
         # label :
         #   0 : no-assignment
         #   n : assign n-cluster (n = 1,2,3,...)
-        t_truepredict_list, centroids_list = [], []
+        t_predict_list, centroids_list = [], []
         acc_list, confmat_list = [], []
 
         for i in range(1, self.cnf.upper_limit_iter + 1):
@@ -53,11 +53,11 @@ class KMeans:
             # move centroids
             centroids = self.moveCentroids(x, t_predict)
             # calculate accuracy
-            acc, confmat, t_truepredict = self.calculateAccuracy(t, t_predict)
+            acc, confmat, t_predict_label, order = self.calculateAccuracy(t, t_predict)
             # plot figure
-            self.plotFigure(x, t, t_predict, centroids, i)
+            self.plotFigure(x, t, t_predict_label, centroids, order, i)
             # record
-            t_truepredict_list.append(t_truepredict)
+            t_predict_list.append(t_predict_label)
             centroids_list.append(centroids)
             acc_list.append(acc)
             confmat_list.append(confmat)
@@ -71,7 +71,7 @@ class KMeans:
         # plot figure
         #self.plotFigure(x, t, t_predict, centroids)
         # save experimental data
-        self.saveExperimentalData({'t-pred':np.array(t_truepredict_list), 'centroid':np.array(centroids_list), 'acc':np.array(acc_list), 'confmat':np.array(confmat_list)})
+        self.saveExperimentalData({'t-pred':np.array(t_predict_list), 'centroid':np.array(centroids_list), 'acc':np.array(acc_list), 'confmat':np.array(confmat_list)})
 
         # except Exception as e:
         #     print('Error : {}'.format(e))
@@ -145,7 +145,7 @@ class KMeans:
         return (x, t)
 
 
-    def plotFigure(self, x, t, t_predict, centroids, iter=None):
+    def plotFigure(self, x, t, t_predict, centroids, order=None, iter=None):
         '''
             plot figure
         '''
@@ -179,7 +179,10 @@ class KMeans:
         for i in range(self.cnf.centers):
             x_label = x[t_predict == (i+1)]
             ax2.scatter(x_label[:,0], x_label[:,1], color=color[i], label='class-'+ str(i+1), linewidth = 1.0, marker=marker[0])
-            ax2.scatter(centroids[i,0], centroids[i,1], color=color_centroids[i], marker=marker[1])
+            if order is None:
+                ax2.scatter(centroids[i,0], centroids[i,1], color=color_centroids[i], marker=marker[1])
+            else:
+                ax2.scatter(centroids[i,0], centroids[i,1], color=color_centroids[order[i]-1], marker=marker[1])
         ax2.set_title(title2)
         ax2.set_xlabel(self.cnf.dataset_dec[0])
         ax2.set_ylabel(self.cnf.dataset_dec[1])
@@ -261,11 +264,12 @@ class KMeans:
                 acc = acc_
                 confmat = mr.confusion_matrix(t,t_predict_)
                 t_truepredict = t_predict_.copy()
+                order = pt[i]
 
-        return acc, confmat, t_truepredict
+        return acc, confmat, t_truepredict, order
 
 
 if __name__ == "__main__":
-    #for i in range(10):
-    km = KMeans()
-    km.main()
+    for i in range(10):
+        km = KMeans(i)
+        km.main()
