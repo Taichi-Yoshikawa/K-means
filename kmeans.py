@@ -21,60 +21,61 @@ class KMeans:
     '''
     def __init__(self, seed=1):
         # configuration
+        self.seed = seed  if isinstance(seed,(range,list)) else [seed]
         self.cnf = cf.Configuration()
         self.random = np.random
-        self.random.seed(seed)
         self.time = tm.strftime('%Y-%m-%d_%H-%M-%S')
-        self.cnf_name = 'comparison_' + '_'.join(['Iris',self.cnf.similarity_index, 'seed='+str(seed)])
+        self.cnf_name = 'comparison_' + '_'.join(['Iris',self.cnf.similarity_index])
 
 
     def main(self):
         '''
             main function
         '''
-        # try:
-        # loading dataset
-        (x, t) = self.loadDataset()
-        # random initialize
-        centroids = x[self.random.choice(range(x.shape[0]), self.cnf.centers, replace=False)]
-        # initialize prediction-label by k-means
-        t_predict = np.zeros(x.shape[0])
-        # label :
-        #   0 : no-assignment
-        #   n : assign n-cluster (n = 1,2,3,...)
-        t_predict_list, centroids_list = [], []
-        acc_list, confmat_list = [], []
+        try:
+            for i in range(len(self.seed)):
+                # set seed-value of numpy.random
+                self.random.seed(self.seed[i])
+                # loading dataset
+                (x, t) = self.loadDataset(i)
+                # random initialize
+                centroids = x[self.random.choice(range(x.shape[0]), self.cnf.centers, replace=False)]
+                # initialize prediction-label by k-means
+                t_predict = np.zeros(x.shape[0])
+                # label :
+                #   0 : no-assignment
+                #   n : assign n-cluster (n = 1,2,3,...)
+                t_predict_list, centroids_list = [], []
+                acc_list, confmat_list = [], []
 
-        for i in range(1, self.cnf.upper_limit_iter + 1):
-            # calculate similarity index
-            similarity = self.calculateSimilarityIndex(x, centroids)
-            # assignment clusters
-            t_predict, movement = self.assignClusters(similarity, t_predict)
-            # move centroids
-            centroids = self.moveCentroids(x, t_predict)
-            # calculate accuracy
-            acc, confmat, t_predict_label, order = self.calculateAccuracy(t, t_predict)
-            # plot figure
-            self.plotFigure(x, t, t_predict_label, centroids, order, i)
-            # record
-            t_predict_list.append(t_predict_label)
-            centroids_list.append(centroids)
-            acc_list.append(acc)
-            confmat_list.append(confmat)
-            # movement
-            if movement :
-                print('{} iters : class-move (accuracy: {}[%])'.format(str(i).rjust(3), acc*100))
-            else :
-                print('{} iters : class-stop (accuracy: {}[%])'.format(str(i).rjust(3), acc*100))
-                break
+                for j in range(1, self.cnf.upper_limit_iter + 1):
+                    # calculate similarity index
+                    similarity = self.calculateSimilarityIndex(x, centroids)
+                    # assignment clusters
+                    t_predict, movement = self.assignClusters(similarity, t_predict)
+                    # move centroids
+                    centroids = self.moveCentroids(x, t_predict)
+                    # calculate accuracy
+                    acc, confmat, t_predict_label, order = self.calculateAccuracy(t, t_predict)
+                    # plot figure
+                    self.plotFigure(x, t, t_predict_label, centroids, order, i, j)
+                    # record
+                    t_predict_list.append(t_predict_label)
+                    centroids_list.append(centroids)
+                    acc_list.append(acc)
+                    confmat_list.append(confmat)
+                    # movement
+                    if movement :
+                        print('{} iters : class-move (accuracy: {}[%])'.format(str(j).rjust(3), acc*100))
+                    else :
+                        print('{} iters : class-stop (accuracy: {}[%])'.format(str(j).rjust(3), acc*100))
+                        break
 
-        # plot figure
-        #self.plotFigure(x, t, t_predict, centroids)
-        # save experimental data
-        self.saveExperimentalData({'t-pred':np.array(t_predict_list), 'centroid':np.array(centroids_list), 'acc':np.array(acc_list), 'confmat':np.array(confmat_list)})
+                # save experimental data
+                self.saveExperimentalData({'t-pred':np.array(t_predict_list), 'centroid':np.array(centroids_list), 'acc':np.array(acc_list), 'confmat':np.array(confmat_list)},i)
 
-        # except Exception as e:
-        #     print('Error : {}'.format(e))
+        except Exception as e:
+            print('Error : {}'.format(e))
 
 
     def calculateSimilarityIndex(self, x, centroids):
@@ -126,11 +127,15 @@ class KMeans:
         return centroids
 
 
-    def loadDataset(self):
+    def loadDataset(self, i):
         '''
             load dataset from URL
         '''
-        df = pd.read_csv(self.cnf.dataset_url, header=None)
+        if (i==0) and not (os.path.exists(self.cnf.path_out + '/' + self.cnf.dataset_url.split('/')[-1])) :
+            df = pd.read_csv(self.cnf.dataset_url, header=None)
+            df.to_csv(self.cnf.path_out + '/' + self.cnf.dataset_url.split('/')[-1], header=False, index=False)
+        else:
+            df = pd.read_csv(self.cnf.path_out + '/' + self.cnf.dataset_url.split('/')[-1], header=None)
         # select [sepal_length, sepal_width, petal_length, petal_width]
         x_all = df[self.cnf.dataset_index['dec']].values
         t_all_origin = df[self.cnf.dataset_index['obj']].values
@@ -145,7 +150,7 @@ class KMeans:
         return (x, t)
 
 
-    def plotFigure(self, x, t, t_predict, centroids, order=None, iter=None):
+    def plotFigure(self, x, t, t_predict, centroids, order=None, seed=0, iter=None):
         '''
             plot figure
         '''
@@ -192,12 +197,12 @@ class KMeans:
             fig.savefig(path_graph + '/' + self.cnf_name + '.png' , dpi=300)
             #plt.show()
         elif isinstance(iter, int) :
-            fig.savefig(path_graph + '/' + self.cnf_name + '_iter=' + str(iter) + '.png' , dpi=300)
+            fig.savefig(path_graph + '/' + self.cnf_name + '_seed=' + str(self.seed[seed]) + '_iter=' + str(iter) + '.png' , dpi=300)
 
         plt.close()
 
 
-    def saveExperimentalData(self, data_dict=None):
+    def saveExperimentalData(self, data_dict=None, seed=0):
         '''
             save experimental data
         '''
@@ -244,7 +249,7 @@ class KMeans:
                         index.extend([ '{}[{}][{}]'.format(list(data_dict.keys())[i], j+1, k+1) for j,k in zip(np.repeat(shape1,data.shape[2]),np.tile(shape2,data.shape[1]))])
 
             df = pd.DataFrame(value, index=range(1,max_iter+1),columns=index)
-            df.to_csv(path_table + '/' + 'experimental-data_' + self.cnf_name + '.csv')
+            df.to_csv(path_table + '/' + 'experimental-data_' + self.cnf_name+ '_seed=' + str(self.seed[seed]) + '.csv')
 
 
     def calculateAccuracy(self, t, t_predict):
@@ -270,6 +275,5 @@ class KMeans:
 
 
 if __name__ == "__main__":
-    for i in range(10):
-        km = KMeans(i)
-        km.main()
+    km = KMeans(range(10))
+    km.main()
