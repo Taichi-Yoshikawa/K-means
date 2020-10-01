@@ -1,6 +1,6 @@
-# << Intelligent systems >>
-# REPORT#3 : K-means
-# - K-means
+# K-means
+# [Yoshikawa Taichi]
+# version 1.5 (Jan. 30, 2020)
 
 import os
 import time                         as tm

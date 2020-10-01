@@ -1,6 +1,6 @@
-# << Intelligent systems >>
-# REPORT#3 : K-means
-# - Configuration
+# Configuration
+# [Yoshikawa Taichi]
+# version 1.3 (Jan. 28, 2020)
 
 
 class Configuration():
